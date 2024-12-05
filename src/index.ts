@@ -7,21 +7,41 @@ import { env } from './env';
 
 import { createQueue, setupQueueProcessor } from './queue';
 
-interface AddJobQueryString {
-  id: string;
+interface ZendeskCredentials {
+  token: string;
   email: string;
 }
 
+interface InstanceInfo {
+  id: number;
+  name: string;
+  subdomain: string;
+  tags: string[];
+  credentials: ZendeskCredentials;
+}
+
+interface MigrationJobBody {
+  source: {
+    type: 'snapshot' | 'live';
+    instanceInfo: InstanceInfo;
+    snapshotId?: number;
+  };
+  target: {
+    instanceInfo: InstanceInfo;
+  };
+  components: string[];
+}
+
 const run = async () => {
-  const welcomeEmailQueue = createQueue('WelcomeEmailQueue');
-  await setupQueueProcessor(welcomeEmailQueue.name);
+  const migrationQueue = createQueue('ZendeskMigrationQueue');
+  await setupQueueProcessor(migrationQueue.name);
 
   const server: FastifyInstance<Server, IncomingMessage, ServerResponse> =
     fastify();
 
   const serverAdapter = new FastifyAdapter();
   createBullBoard({
-    queues: [new BullMQAdapter(welcomeEmailQueue)],
+    queues: [new BullMQAdapter(migrationQueue)],
     serverAdapter,
   });
   serverAdapter.setBasePath('/');
@@ -30,44 +50,106 @@ const run = async () => {
     basePath: '/',
   });
 
-  server.get(
-    '/add-job',
+  server.post(
+    '/migration',
     {
       schema: {
-        querystring: {
+        body: {
           type: 'object',
+          required: ['source', 'target', 'components'],
           properties: {
-            title: { type: 'string' },
-            id: { type: 'string' },
-          },
-        },
-      },
-    },
-    (req: FastifyRequest<{ Querystring: AddJobQueryString }>, reply) => {
-      if (
-        req.query == null ||
-        req.query.email == null ||
-        req.query.id == null
-      ) {
-        reply
-          .status(400)
-          .send({ error: 'Requests must contain both an id and a email' });
-
-        return;
+            source: {
+              type: 'object',
+              required: ['type', 'instanceInfo'],
+              properties: {
+                type: { type: 'string', enum: ['snapshot', 'live'] },
+                instanceInfo: {
+                  type: 'object',
+                  required: ['id', 'name', 'subdomain', 'credentials'],
+                  properties: {
+                    id: { type: 'number' },
+                    name: { type: 'string' },
+                    subdomain: { type: 'string' },
+                    tags: { type: 'array', items: { type: 'string' } },
+                    credentials: {
+                      type: 'object',
+                      required: ['token', 'email'],
+                      properties: {
+                        token: { type: 'string' },
+                        email: { type: 'string' }
+                      }
+                    }
+                  }
+                },
+                snapshotId: { type: 'number' }
+              }
+            },
+            target: {
+              type: 'object',
+              required: ['instanceInfo'],
+              properties: {
+                instanceInfo: {
+                  type: 'object',
+                  required: ['id', 'name', 'subdomain', 'credentials'],
+                  properties: {
+                    id: { type: 'number' },
+                    name: { type: 'string' },
+                    subdomain: { type: 'string' },
+                    tags: { type: 'array', items: { type: 'string' } },
+                    credentials: {
+                      type: 'object',
+                      required: ['token', 'email'],
+                      properties: {
+                        token: { type: 'string' },
+                        email: { type: 'string' }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            components: {
+              type: 'array',
+              items: { type: 'string' }
+            }
+          }
+        }
       }
-
-      const { email, id } = req.query;
-      welcomeEmailQueue.add(`WelcomeEmail-${id}`, { email });
+    },
+    async (req: FastifyRequest<{ Body: MigrationJobBody }>, reply) => {
+      const jobId = `migration-${Date.now()}`;
+      
+      await migrationQueue.add(jobId, {
+        source: req.body.source,
+        target: req.body.target,
+        job: {
+          id: jobId,
+          components: req.body.components,
+        },
+      });
 
       reply.send({
-        ok: true,
+        jobId,
+        status: 'queued',
+        message: 'Migration job has been queued',
+        details: {
+          source: {
+            name: req.body.source.instanceInfo.name,
+            type: req.body.source.type,
+            ...(req.body.source.snapshotId && { snapshotId: req.body.source.snapshotId })
+          },
+          target: {
+            name: req.body.target.instanceInfo.name
+          },
+          components: req.body.components
+        }
       });
     }
   );
 
   await server.listen({ port: env.PORT, host: '0.0.0.0' });
   console.log(
-    `To populate the queue and demo the UI, run: curl https://${env.RAILWAY_STATIC_URL}/add-job?id=1&email=hello%40world.com`
+    `Server running. Send a POST request to https://${env.RAILWAY_STATIC_URL}/migration with source and target instance details`
   );
 };
 

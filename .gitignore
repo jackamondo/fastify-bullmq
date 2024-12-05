@@ -2,3 +2,6 @@
 .DS_Store
 node_modules
 dist
+mockData
+package-lock.json
+yarn.lock

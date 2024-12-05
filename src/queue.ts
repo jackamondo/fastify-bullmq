@@ -173,7 +173,10 @@ export const setupQueueProcessor = async (queueName: string) => {
             await job.updateProgress((currentStep / totalSteps) * 100);
             
           } catch (error) {
-            await job.log(`Error processing ${component}: ${error.message}`);
+            const errorMessage = error instanceof Error 
+              ? error.message 
+              : 'An unknown error occurred';
+            await job.log(`Error processing ${component}: ${errorMessage}`);
             throw error;
           }
         }
@@ -189,6 +192,10 @@ export const setupQueueProcessor = async (queueName: string) => {
       } catch (error) {
         // Cleanup temp storage on error
         // TODO: Implement cleanup of jobTempPath
+        const errorMessage = error instanceof Error 
+          ? error.message 
+          : 'An unknown error occurred';
+        await job.log(`Fatal error in migration job: ${errorMessage}`);
         throw error;
       }
     },

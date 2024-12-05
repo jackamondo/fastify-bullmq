@@ -62,6 +62,7 @@ const run = async () => {
           properties: {
             type: { type: 'string' },
             source: {
+              type: 'object',
               required: ['instanceInfo'],
               properties: {
                 instanceInfo: {

@@ -8,7 +8,7 @@ interface ZendeskCredentials {
 }
 
 interface InstanceInfo {
-  id: number;
+  id: string;
   name: string;
   subdomain: string;
   tags: string[];
@@ -22,10 +22,10 @@ interface ComponentBreakdown {
 }
 
 interface Snapshot {
-  id: number;
+  id: string;
   name: string;
   tags: string[];
-  parentId: number;
+  parentId: string;
   locked: boolean;
   createdAt: string;
   breakdown: {
@@ -37,7 +37,7 @@ interface MigrationJobData {
   source: {
     type: 'snapshot' | 'live';
     instanceInfo: InstanceInfo;
-    snapshotId?: number;
+    snapshotId?: string;
   };
   target: {
     instanceInfo: InstanceInfo;
@@ -102,14 +102,14 @@ const validateSnapshot = async (snapshot: Snapshot, components: string[]) => {
 
 // Mock function to simulate fetching snapshot from Convex
 // TODO: Replace with actual Convex fetch
-const fetchSnapshotFromConvex = async (snapshotId: number): Promise<Snapshot | null> => {
+const fetchSnapshotFromConvex = async (snapshotId: string): Promise<Snapshot | null> => {
   // This is temporary mock data based on your snapshots.json
   const mockSnapshots: { [key: number]: Snapshot } = {
     1: {
-      id: 1,
+      id: "1",
       name: "Snapshot 1",
       tags: ["dev", "stable", "backup"],
-      parentId: 1,
+      parentId: "1",
       locked: false,
       createdAt: "2024-01-01T00:00:00.000Z",
       breakdown: {

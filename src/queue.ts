@@ -102,7 +102,7 @@ const validateSnapshot = async (snapshot: Snapshot, components: string[]) => {
 
 // Mock function to simulate fetching snapshot from Convex
 // TODO: Replace with actual Convex fetch
-const fetchSnapshotFromConvex = async (snapshotId: string): Promise<Snapshot | null> => {
+const fetchSnapshotFromConvex = async (snapshotId: any): Promise<Snapshot | null> => {
   // This is temporary mock data based on your snapshots.json
   const mockSnapshots: { [key: number]: Snapshot } = {
     1: {

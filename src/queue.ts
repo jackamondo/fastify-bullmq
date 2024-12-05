@@ -83,6 +83,14 @@ const MIGRATION_ORDER = [
 ];
 
 const validateSnapshot = async (snapshot: Snapshot, components: string[]) => {
+  if (!snapshot) {
+    throw new Error('Snapshot not found');
+  }
+  
+  if (!snapshot.breakdown) {
+    throw new Error('Snapshot breakdown is missing');
+  }
+
   const missingComponents = components.filter(comp => !snapshot.breakdown[comp]);
   if (missingComponents.length > 0) {
     throw new Error(`Snapshot missing required components: ${missingComponents.join(', ')}`);
@@ -92,10 +100,46 @@ const validateSnapshot = async (snapshot: Snapshot, components: string[]) => {
   }
 };
 
+// Mock function to simulate fetching snapshot from Convex
+// TODO: Replace with actual Convex fetch
+const fetchSnapshotFromConvex = async (snapshotId: number): Promise<Snapshot | null> => {
+  // This is temporary mock data based on your snapshots.json
+  const mockSnapshots: { [key: number]: Snapshot } = {
+    1: {
+      id: 1,
+      name: "Snapshot 1",
+      tags: ["dev", "stable", "backup"],
+      parentId: 1,
+      locked: false,
+      createdAt: "2024-01-01T00:00:00.000Z",
+      breakdown: {
+        ticket_fields: {
+          count: "10",
+          size: 4500,
+          file: "/1/1/ticket_fields.json"
+        },
+        ticket_forms: {
+          count: "1",
+          size: 2500,
+          file: "/1/1/ticket_forms.json"
+        },
+        // ... other components
+      }
+    }
+  };
+
+  return mockSnapshots[snapshotId] || null;
+};
+
 const fetchSnapshotData = async (component: string, filePath: string) => {
   // TODO: Implement actual fetch from object storage
   // This would interact with your Convex storage to get the JSON file
-  return null;
+  await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate network delay
+  return {
+    mock: true,
+    component,
+    filePath
+  };
 };
 
 const fetchLiveData = async (
@@ -118,15 +162,11 @@ export const setupQueueProcessor = async (queueName: string) => {
     async (job) => {
       const { source, target, job: migrationJob } = job.data;
       const idMappings: IdMapping[] = [];
+      let snapshot: Snapshot | null = null;
 
       // Initialize progress tracking
       const totalSteps = migrationJob.components.length;
       let currentStep = 0;
-
-      // Sort components based on migration order
-      const sortedComponents = migrationJob.components.sort(
-        (a, b) => MIGRATION_ORDER.indexOf(a) - MIGRATION_ORDER.indexOf(b)
-      );
 
       // Create temporary storage for this job
       const jobTempPath = `tmp/${migrationJob.id}`;
@@ -135,10 +175,22 @@ export const setupQueueProcessor = async (queueName: string) => {
       try {
         // If using snapshot, validate it first
         if (source.type === 'snapshot' && source.snapshotId) {
-          // TODO: Fetch snapshot from your Convex DB
-          const snapshot: Snapshot = {} as Snapshot; // Replace with actual fetch
+          await job.log(`Fetching snapshot ${source.snapshotId}`);
+          snapshot = await fetchSnapshotFromConvex(source.snapshotId);
+          
+          if (!snapshot) {
+            throw new Error(`Snapshot ${source.snapshotId} not found`);
+          }
+
+          await job.log(`Validating snapshot ${snapshot.name}`);
           await validateSnapshot(snapshot, migrationJob.components);
+          await job.log(`Snapshot validation successful`);
         }
+
+        // Sort components based on migration order
+        const sortedComponents = migrationJob.components.sort(
+          (a, b) => MIGRATION_ORDER.indexOf(a) - MIGRATION_ORDER.indexOf(b)
+        );
 
         for (const component of sortedComponents) {
           await job.log(`Starting migration of ${component}`);
@@ -146,14 +198,15 @@ export const setupQueueProcessor = async (queueName: string) => {
           try {
             // 1. Get source data
             let sourceData;
-            if (source.type === 'snapshot' && source.snapshotId) {
-              // TODO: Get snapshot info from Convex
-              const snapshot: Snapshot = {} as Snapshot; // Replace with actual fetch
+            if (source.type === 'snapshot' && snapshot) {
+              const componentInfo = snapshot.breakdown[component];
+              await job.log(`Fetching ${component} from snapshot (size: ${componentInfo.size} bytes)`);
               sourceData = await fetchSnapshotData(
                 component,
-                snapshot.breakdown[component].file
+                componentInfo.file
               );
             } else {
+              await job.log(`Fetching ${component} from live instance ${source.instanceInfo.subdomain}`);
               sourceData = await fetchLiveData(component, source.instanceInfo);
               // Save live data to temp storage
               // TODO: Implement save to jobTempPath
@@ -163,10 +216,11 @@ export const setupQueueProcessor = async (queueName: string) => {
             await job.log(`Processing ${component} (${currentStep + 1}/${totalSteps})`);
             
             // 3. Create in target instance
-            // TODO: Implement creation in target instance using target.instanceInfo.credentials
+            await job.log(`Creating ${component} in target instance ${target.instanceInfo.subdomain}`);
+            // TODO: Implement creation in target instance
             
             // 4. Store ID mappings
-            // TODO: Store mappings in your Convex DB for future reference
+            // TODO: Store mappings in your Convex DB
             
             // 5. Update progress
             currentStep++;

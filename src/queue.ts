@@ -29,7 +29,6 @@ interface MigrationJobData {
   jobId: string;
   type: string;
   source: {
-    type: 'snapshot' | 'live';
     instanceInfo: InstanceInfo;
     snapshotId?: string;
   };
@@ -149,17 +148,9 @@ export const setupQueueProcessor = async (queueName: string) => {
       const { source, target, jobId, ignoredItems = [] } = job.data;
       let snapshot: Snapshot | null = null;
 
-      // Initialize progress tracking using MIGRATION_ORDER
-      const totalSteps = MIGRATION_ORDER.length;
-      let currentStep = 0;
-
-      // Create temporary storage for this job
-      const jobTempPath = `tmp/${jobId}`;
-      await job.log(`Initializing migration job at ${jobTempPath}`);
-
       try {
-        // If using snapshot, validate it first
-        if (source.type === 'snapshot' && source.snapshotId) {
+        // If snapshotId is provided, this is a snapshot migration
+        if (source.snapshotId) {
           await job.log(`Fetching snapshot ${source.snapshotId}`);
           snapshot = await fetchSnapshotFromConvex(source.snapshotId);
           
@@ -183,7 +174,7 @@ export const setupQueueProcessor = async (queueName: string) => {
           try {
             // Get source data
             let sourceData;
-            if (source.type === 'snapshot' && snapshot) {
+            if (snapshot) {
               const componentInfo = snapshot.breakdown[component];
               await job.log(`Fetching ${component} from snapshot (size: ${componentInfo.size} bytes)`);
               sourceData = await fetchSnapshotData(component, componentInfo.file);
@@ -197,8 +188,7 @@ export const setupQueueProcessor = async (queueName: string) => {
             // TODO: Implement creation in target instance
             
             // Update progress
-            currentStep++;
-            await job.updateProgress((currentStep / totalSteps) * 100);
+            await job.updateProgress(100);
             
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
@@ -215,9 +205,6 @@ export const setupQueueProcessor = async (queueName: string) => {
         const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
         await job.log(`Fatal error in migration job: ${errorMessage}`);
         throw error;
-      } finally {
-        // Cleanup temp storage
-        // TODO: Implement cleanup of jobTempPath
       }
     },
     { connection }

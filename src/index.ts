@@ -23,7 +23,6 @@ interface InstanceInfo {
 interface MigrationJobBody {
   type: string;
   source: {
-    type: 'snapshot' | 'live';
     instanceInfo: InstanceInfo;
     snapshotId?: string;
   };
@@ -64,9 +63,8 @@ const run = async () => {
             type: { type: 'string' },
             source: {
               type: 'object',
-              required: ['type', 'instanceInfo'],
+              required: ['instanceInfo'],
               properties: {
-                type: { type: 'string', enum: ['snapshot', 'live'] },
                 instanceInfo: {
                   type: 'object',
                   required: ['id', 'name', 'subdomain', 'credentials'],
@@ -138,7 +136,6 @@ const run = async () => {
           type: req.body.type,
           source: {
             name: req.body.source.instanceInfo.name,
-            type: req.body.source.type,
             ...(req.body.source.snapshotId && { snapshotId: req.body.source.snapshotId })
           },
           target: {

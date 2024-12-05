@@ -5,3 +5,4 @@ dist
 mockData
 package-lock.json
 yarn.lock
+/src/schema

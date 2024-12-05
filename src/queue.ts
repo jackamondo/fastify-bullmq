@@ -1,39 +1,33 @@
 import { ConnectionOptions, Queue, QueueScheduler, Worker } from 'bullmq';
-
 import { env } from './env';
 
+// Updated interfaces without Convex dependencies
 interface ZendeskCredentials {
   token: string;
   email: string;
 }
 
 interface InstanceInfo {
-  id: string;
+  id: string; // Source or target ID
   name: string;
   subdomain: string;
   tags: string[];
-  credentials: ZendeskCredentials;
-}
-
-interface ComponentBreakdown {
-  count: string;
-  size: number;
-  file: string;
+  credentials: Record<string, string>;
 }
 
 interface Snapshot {
   id: string;
   name: string;
-  tags: string[];
-  parentId: string;
+  sourceId: string | null;
   locked: boolean;
   createdAt: string;
-  breakdown: {
-    [key: string]: ComponentBreakdown;
-  };
+  breakdown: any;
+  tags: string[];
 }
 
 interface MigrationJobData {
+  jobId: string;
+  type: string;
   source: {
     type: 'snapshot' | 'live';
     instanceInfo: InstanceInfo;
@@ -42,17 +36,10 @@ interface MigrationJobData {
   target: {
     instanceInfo: InstanceInfo;
   };
-  job: {
-    id: string;
-    components: string[];
-  };
-}
-
-interface IdMapping {
-  oldId: string | number;
-  newId: string | number;
-  type: string;
-  metadata?: Record<string, any>;
+  components: string[];
+  ignoredItems?: string[];
+  translation?: boolean;
+  translationLocales?: string[];
 }
 
 const connection: ConnectionOptions = {
@@ -109,7 +96,7 @@ const fetchSnapshotFromConvex = async (snapshotId: any): Promise<Snapshot | null
       id: "1",
       name: "Snapshot 1",
       tags: ["dev", "stable", "backup"],
-      parentId: "1",
+      sourceId: "1",
       locked: false,
       createdAt: "2024-01-01T00:00:00.000Z",
       breakdown: {
@@ -160,16 +147,15 @@ export const setupQueueProcessor = async (queueName: string) => {
   new Worker<MigrationJobData>(
     queueName,
     async (job) => {
-      const { source, target, job: migrationJob } = job.data;
-      const idMappings: IdMapping[] = [];
+      const { source, target, components, jobId, ignoredItems = [] } = job.data;
       let snapshot: Snapshot | null = null;
 
       // Initialize progress tracking
-      const totalSteps = migrationJob.components.length;
+      const totalSteps = components.length;
       let currentStep = 0;
 
       // Create temporary storage for this job
-      const jobTempPath = `tmp/${migrationJob.id}`;
+      const jobTempPath = `tmp/${jobId}`;
       await job.log(`Initializing migration job at ${jobTempPath}`);
 
       try {
@@ -183,74 +169,56 @@ export const setupQueueProcessor = async (queueName: string) => {
           }
 
           await job.log(`Validating snapshot ${snapshot.name}`);
-          await validateSnapshot(snapshot, migrationJob.components);
+          await validateSnapshot(snapshot, components);
           await job.log(`Snapshot validation successful`);
         }
 
         // Sort components based on migration order
-        const sortedComponents = migrationJob.components.sort(
-          (a, b) => MIGRATION_ORDER.indexOf(a) - MIGRATION_ORDER.indexOf(b)
-        );
+        const sortedComponents = components
+          .filter(comp => !ignoredItems.includes(comp))
+          .sort((a, b) => MIGRATION_ORDER.indexOf(a) - MIGRATION_ORDER.indexOf(b));
 
         for (const component of sortedComponents) {
           await job.log(`Starting migration of ${component}`);
           
           try {
-            // 1. Get source data
+            // Get source data
             let sourceData;
             if (source.type === 'snapshot' && snapshot) {
               const componentInfo = snapshot.breakdown[component];
               await job.log(`Fetching ${component} from snapshot (size: ${componentInfo.size} bytes)`);
-              sourceData = await fetchSnapshotData(
-                component,
-                componentInfo.file
-              );
+              sourceData = await fetchSnapshotData(component, componentInfo.file);
             } else {
               await job.log(`Fetching ${component} from live instance ${source.instanceInfo.subdomain}`);
               sourceData = await fetchLiveData(component, source.instanceInfo);
-              // Save live data to temp storage
-              // TODO: Implement save to jobTempPath
             }
 
-            // 2. Process the component
-            await job.log(`Processing ${component} (${currentStep + 1}/${totalSteps})`);
-            
-            // 3. Create in target instance
+            // Process and create in target
             await job.log(`Creating ${component} in target instance ${target.instanceInfo.subdomain}`);
             // TODO: Implement creation in target instance
             
-            // 4. Store ID mappings
-            // TODO: Store mappings in your Convex DB
-            
-            // 5. Update progress
+            // Update progress
             currentStep++;
             await job.updateProgress((currentStep / totalSteps) * 100);
             
           } catch (error) {
-            const errorMessage = error instanceof Error 
-              ? error.message 
-              : 'An unknown error occurred';
+            const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
             await job.log(`Error processing ${component}: ${errorMessage}`);
             throw error;
           }
         }
 
-        // Cleanup temp storage
-        // TODO: Implement cleanup of jobTempPath
-
         return {
           status: 'completed',
-          idMappings,
-          jobId: migrationJob.id
+          jobId
         };
       } catch (error) {
-        // Cleanup temp storage on error
-        // TODO: Implement cleanup of jobTempPath
-        const errorMessage = error instanceof Error 
-          ? error.message 
-          : 'An unknown error occurred';
+        const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
         await job.log(`Fatal error in migration job: ${errorMessage}`);
         throw error;
+      } finally {
+        // Cleanup temp storage
+        // TODO: Implement cleanup of jobTempPath
       }
     },
     { connection }

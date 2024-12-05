@@ -36,7 +36,6 @@ interface MigrationJobData {
   target: {
     instanceInfo: InstanceInfo;
   };
-  components: string[];
   ignoredItems?: string[];
   translation?: boolean;
   translationLocales?: string[];
@@ -147,11 +146,11 @@ export const setupQueueProcessor = async (queueName: string) => {
   new Worker<MigrationJobData>(
     queueName,
     async (job) => {
-      const { source, target, components, jobId, ignoredItems = [] } = job.data;
+      const { source, target, jobId, ignoredItems = [] } = job.data;
       let snapshot: Snapshot | null = null;
 
-      // Initialize progress tracking
-      const totalSteps = components.length;
+      // Initialize progress tracking using MIGRATION_ORDER
+      const totalSteps = MIGRATION_ORDER.length;
       let currentStep = 0;
 
       // Create temporary storage for this job
@@ -169,16 +168,16 @@ export const setupQueueProcessor = async (queueName: string) => {
           }
 
           await job.log(`Validating snapshot ${snapshot.name}`);
-          await validateSnapshot(snapshot, components);
+          await validateSnapshot(snapshot, MIGRATION_ORDER);
           await job.log(`Snapshot validation successful`);
         }
 
-        // Sort components based on migration order
-        const sortedComponents = components
-          .filter(comp => !ignoredItems.includes(comp))
-          .sort((a, b) => MIGRATION_ORDER.indexOf(a) - MIGRATION_ORDER.indexOf(b));
+        // Filter ignored items from MIGRATION_ORDER
+        const componentsToMigrate = MIGRATION_ORDER.filter(
+          comp => !ignoredItems.includes(comp)
+        );
 
-        for (const component of sortedComponents) {
+        for (const component of componentsToMigrate) {
           await job.log(`Starting migration of ${component}`);
           
           try {

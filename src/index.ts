@@ -13,23 +13,26 @@ interface ZendeskCredentials {
 }
 
 interface InstanceInfo {
-  id: number;
+  id: string;
   name: string;
   subdomain: string;
   tags: string[];
-  credentials: ZendeskCredentials;
+  credentials: Record<string, string>;
 }
 
 interface MigrationJobBody {
+  type: string;
   source: {
     type: 'snapshot' | 'live';
     instanceInfo: InstanceInfo;
-    snapshotId?: number;
+    snapshotId?: string;
   };
   target: {
     instanceInfo: InstanceInfo;
   };
-  components: string[];
+  ignoredItems?: string[];
+  translation?: boolean;
+  translationLocales?: string[];
 }
 
 const run = async () => {
@@ -56,8 +59,9 @@ const run = async () => {
       schema: {
         body: {
           type: 'object',
-          required: ['source', 'target', 'components'],
+          required: ['source', 'target', 'type'],
           properties: {
+            type: { type: 'string' },
             source: {
               type: 'object',
               required: ['type', 'instanceInfo'],
@@ -67,21 +71,17 @@ const run = async () => {
                   type: 'object',
                   required: ['id', 'name', 'subdomain', 'credentials'],
                   properties: {
-                    id: { type: 'number' },
+                    id: { type: 'string' },
                     name: { type: 'string' },
                     subdomain: { type: 'string' },
                     tags: { type: 'array', items: { type: 'string' } },
                     credentials: {
                       type: 'object',
-                      required: ['token', 'email'],
-                      properties: {
-                        token: { type: 'string' },
-                        email: { type: 'string' }
-                      }
+                      additionalProperties: { type: 'string' }
                     }
                   }
                 },
-                snapshotId: { type: 'number' }
+                snapshotId: { type: 'string' }
               }
             },
             target: {
@@ -92,23 +92,24 @@ const run = async () => {
                   type: 'object',
                   required: ['id', 'name', 'subdomain', 'credentials'],
                   properties: {
-                    id: { type: 'number' },
+                    id: { type: 'string' },
                     name: { type: 'string' },
                     subdomain: { type: 'string' },
                     tags: { type: 'array', items: { type: 'string' } },
                     credentials: {
                       type: 'object',
-                      required: ['token', 'email'],
-                      properties: {
-                        token: { type: 'string' },
-                        email: { type: 'string' }
-                      }
+                      additionalProperties: { type: 'string' }
                     }
                   }
                 }
               }
             },
-            components: {
+            ignoredItems: {
+              type: 'array',
+              items: { type: 'string' }
+            },
+            translation: { type: 'boolean' },
+            translationLocales: {
               type: 'array',
               items: { type: 'string' }
             }
@@ -120,12 +121,13 @@ const run = async () => {
       const jobId = `migration-${Date.now()}`;
       
       await migrationQueue.add(jobId, {
+        jobId,
+        type: req.body.type,
         source: req.body.source,
         target: req.body.target,
-        job: {
-          id: jobId,
-          components: req.body.components,
-        },
+        ignoredItems: req.body.ignoredItems,
+        translation: req.body.translation,
+        translationLocales: req.body.translationLocales
       });
 
       reply.send({
@@ -133,6 +135,7 @@ const run = async () => {
         status: 'queued',
         message: 'Migration job has been queued',
         details: {
+          type: req.body.type,
           source: {
             name: req.body.source.instanceInfo.name,
             type: req.body.source.type,
@@ -141,7 +144,9 @@ const run = async () => {
           target: {
             name: req.body.target.instanceInfo.name
           },
-          components: req.body.components
+          ignoredItems: req.body.ignoredItems,
+          translation: req.body.translation,
+          translationLocales: req.body.translationLocales
         }
       });
     }
